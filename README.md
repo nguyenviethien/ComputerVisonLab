@@ -57,6 +57,11 @@ Configuring Tesseract in the app
 - `Settings → Check Tesseract` shows the detected version and path.
 - If OCR is triggered without a configured binary, the app prompts you to locate it.
 
+Korean plates
+
+- For Korean characters (e.g., 다), install the language data `kor.traineddata` into Tesseract’s `tessdata` folder.
+- Use language `kor` or `kor+eng`. In the app, set it via `Settings → Plate OCR Language…` or choose it in the OCR dialog.
+
 Object Detection (default = YOLOv8n)
 
 - Default model is YOLOv8n (Ultralytics). Install once:

@@ -66,6 +66,8 @@ class ImageApp:
 
         settings_menu = tk.Menu(menubar, tearoff=0)
         settings_menu.add_command(label="Set Tesseract Path...", command=self.set_tesseract_path)
+        settings_menu.add_command(label="Plate OCR Language...", command=self.set_plate_ocr_language)
+        settings_menu.add_separator()
         settings_menu.add_command(label="Check Tesseract", command=self.check_tesseract)
 
         help_menu = tk.Menu(menubar, tearoff=0)
@@ -678,7 +680,7 @@ class ImageApp:
         if not self._ensure_image():
             return
         dlg = ParamDialog(self.root, title="OCR Text", params=[
-            ChoiceParam("lang", "Language", ["eng", "vie", "eng+vie"], "eng"),
+            ChoiceParam("lang", "Language", ["eng", "vie", "eng+vie", "kor", "kor+eng"], self.config.get('ocr_lang_text', 'eng')),
             ChoiceParam("psm", "Page Seg Mode", ["Auto(3)", "Block(6)", "SingleLine(7)", "SingleWord(8)", "Sparse(11)", "Raw(13)"], "Auto(3)"),
             ChoiceParam("charset", "Charset", ["General", "Digits", "Alphanumeric"], "General"),
             BoolParam("invert", "Auto invert for dark bg", True),
@@ -687,6 +689,9 @@ class ImageApp:
         if res is None:
             return
         lang = str(res["lang"]).strip()
+        # Remember last used text OCR lang
+        self.config['ocr_lang_text'] = lang
+        self._save_config()
         psm_map = {"Auto(3)":3, "Block(6)":6, "SingleLine(7)":7, "SingleWord(8)":8, "Sparse(11)":11, "Raw(13)":13}
         psm = psm_map.get(str(res["psm"])) or 3
         charset = str(res["charset"]) or "General"
@@ -728,7 +733,13 @@ class ImageApp:
             )
             return ""
         except Exception as ex:
-            messagebox.showerror("OCR error", f"{ex}", parent=self.root)
+            msg = str(ex)
+            if 'Error opening data file' in msg or 'Failed loading language' in msg:
+                messagebox.showerror("OCR language missing",
+                                     f"Tesseract is missing language data for '{lang}'.\nInstall the traineddata (e.g., kor.traineddata) into the tessdata folder.",
+                                     parent=self.root)
+            else:
+                messagebox.showerror("OCR error", f"{ex}", parent=self.root)
             return ""
 
     def _show_ocr_result(self, text: str, title: str = "OCR Result") -> None:
@@ -786,7 +797,7 @@ class ImageApp:
         if target_quad is None:
             # fallback: OCR whole image
             pre = self._prepare_for_ocr(src, invert=True)
-            text = self._tesseract_ocr(pre, lang="eng", psm=7, charset="Alphanumeric")
+            text = self._tesseract_ocr(pre, lang=self._plate_ocr_lang(), psm=7, charset="General")
             self._show_ocr_result(text or "", "Detect Plate & OCR (fallback)")
             self._set_status("Plate not found; OCR on full image")
             return
@@ -807,8 +818,10 @@ class ImageApp:
         M = cv2.getPerspectiveTransform(quad.astype("float32"), dst)
         warped = cv2.warpPerspective(src, M, (maxW, maxH))
 
-        pre = self._prepare_for_ocr(warped, invert=True)
-        text = self._tesseract_ocr(pre, lang="eng", psm=7, charset="Alphanumeric")
+        # Upscale plate region for better OCR on complex scripts
+        warped_big = cv2.resize(warped, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+        pre = self._prepare_for_ocr(warped_big, invert=True)
+        text = self._tesseract_ocr(pre, lang=self._plate_ocr_lang(), psm=7, charset="General")
         self._show_ocr_result(text or "", "Detect Plate & OCR")
         self._set_status("Plate OCR done")
 
@@ -822,6 +835,24 @@ class ImageApp:
         rect[1] = pts[np.argmin(diff)]  # tr
         rect[3] = pts[np.argmax(diff)]  # bl
         return rect
+
+    def _plate_ocr_lang(self) -> str:
+        # Default to kor+eng to support Korean plates with Latin digits
+        return str(self.config.get('ocr_lang_plate', 'kor+eng'))
+
+    def set_plate_ocr_language(self) -> None:
+        langs = ["eng", "vie", "eng+vie", "kor", "kor+eng"]
+        current = self._plate_ocr_lang()
+        dlg = ParamDialog(self.root, title="Plate OCR Language", params=[
+            ChoiceParam("lang", "Language", langs, current)
+        ])
+        res = dlg.show()
+        if res is None:
+            return
+        lang = str(res.get('lang', current))
+        self.config['ocr_lang_plate'] = lang
+        self._save_config()
+        messagebox.showinfo("Plate OCR Language", f"Saved: {lang}", parent=self.root)
 
     # ---- Object Detection (MobileNet-SSD) ----
     def _dialog_object_detection(self) -> None:
