@@ -872,8 +872,9 @@ class ImageApp:
         if have_proto and have_weights:
             return proto, weights
         # Ask to download
-        if not messagebox.askyesno("Model missing", "MobileNet-SSD model not found. Download now (~23MB)?", parent=self.root):
-            return None
+        if not messagebox.askyesno("Model missing", "MobileNet-SSD model not found. Download now (~23MB)?\n(If download fails, you'll be prompted to pick local files)", parent=self.root):
+            # As an alternative, allow user to pick existing files
+            return self._pick_mobilenet_files()
         # Sources (primary and fallback)
         proto_urls = [
             'https://raw.githubusercontent.com/chuanqi305/MobileNet-SSD/master/MobileNetSSD_deploy.prototxt',
@@ -889,7 +890,13 @@ class ImageApp:
                     ok = True
                     break
         if not ok:
-            return None
+            messagebox.showwarning("Download failed", "Couldn't download prototxt. Please locate it manually.", parent=self.root)
+            picked = self._pick_mobilenet_files(expect_weights=False)
+            if picked is None:
+                return None
+            else:
+                proto, _ = picked
+                ok = True
         ok2 = have_weights
         if not have_weights:
             for u in weight_urls:
@@ -897,8 +904,29 @@ class ImageApp:
                     ok2 = True
                     break
         if not ok2:
-            return None
+            messagebox.showwarning("Download failed", "Couldn't download caffemodel. Please locate it manually.", parent=self.root)
+            picked = self._pick_mobilenet_files(expect_proto=False)
+            if picked is None:
+                return None
+            else:
+                _, weights = picked
         return proto, weights
+
+    def _pick_mobilenet_files(self, expect_proto: bool = True, expect_weights: bool = True) -> Optional[tuple[str, str]]:
+        models_dir = self._models_dir()
+        proto_path = os.path.join(models_dir, 'MobileNetSSD_deploy.prototxt')
+        weights_path = os.path.join(models_dir, 'MobileNetSSD_deploy.caffemodel')
+        if expect_proto:
+            p = filedialog.askopenfilename(parent=self.root, title='Select MobileNetSSD_deploy.prototxt', filetypes=[('prototxt','*.prototxt'), ('All files','*.*')])
+            if not p:
+                return None
+            proto_path = p
+        if expect_weights:
+            w = filedialog.askopenfilename(parent=self.root, title='Select MobileNetSSD_deploy.caffemodel', filetypes=[('caffemodel','*.caffemodel'), ('All files','*.*')])
+            if not w:
+                return None
+            weights_path = w
+        return proto_path, weights_path
 
     def _mobilenet_classes(self) -> list[str]:
         return [
