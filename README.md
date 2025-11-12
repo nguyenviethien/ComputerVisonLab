@@ -1,52 +1,61 @@
 ImageUtility
 
-Ứng dụng Python đơn giản với giao diện Tkinter để xử lý ảnh cơ bản sử dụng OpenCV: chuyển xám, nhị phân (binary), edge (Canny), contour, làm mờ, xoay, lật, hoàn tác.
+A small Python desktop app with a Tkinter UI for basic image processing using OpenCV. Includes grayscale, binary/adaptive threshold, Canny edges, contours, blur, rotate/flip, zoom/pan, and OCR (Tesseract). 
 
-Yêu cầu
+Requirements
 
 - Python 3.8+
-- Thư viện: `opencv-python`, `Pillow`, `numpy`
+- Libraries: `opencv-python`, `Pillow`, `numpy`, `pytesseract`
 
-Cài đặt nhanh:
+Install
 
 ```
 pip install -r requirements.txt
 ```
 
-Chạy ứng dụng
+Run
 
 ```
 python app.py
 ```
 
-Tính năng chính
+Features
 
-- Mở/lưu ảnh (File -> Open/Save As)
-- Hoàn tác và đặt lại về ảnh gốc (Edit -> Undo/Reset)
-- Các xử lý ảnh:
-  - Grayscale (chuyển xám)
-  - Binary threshold (ngưỡng nhị phân) với thanh trượt
-  - Adaptive threshold (ngưỡng thích nghi)
-  - Canny edge detection (phát hiện biên) với 2 ngưỡng
-  - Contours (tìm và vẽ đường viền) với lọc theo diện tích tối thiểu
-  - Gaussian blur (làm mờ) với kích thước kernel
-  - Xoay trái/phải 90°, lật ngang/dọc
-  - Zoom in/out, Fit/100%, pan bằng chuột
-  - OCR (nhận dạng chữ/số) từ ảnh hiện tại
-  - Detect Plate & OCR: thử phát hiện vùng biển số và đọc text
+- Open/Save image (File → Open/Save As)
+- Undo and Reset to original (Edit → Undo/Reset)
+- Image operations:
+  - Grayscale
+  - Binary threshold (with slider)
+  - Adaptive threshold
+  - Canny edge detection (two thresholds)
+  - Contours (draw outlines or filled, min area filter)
+  - Gaussian blur (kernel size)
+  - Rotate 90° (left/right), Flip (H/V)
+  - Zoom in/out, Fit/100%, mouse pan
+  - OCR current image
+  - Detect Plate & OCR (heuristic plate finder + perspective warp, then OCR)
 
-Ghi chú
+Notes
 
-- Ảnh hiển thị được scale vừa cửa sổ, nhưng thao tác xử lý và lưu luôn làm trên ảnh gốc (kích thước ban đầu).
-- Một số thao tác chuyển ảnh thành 1 kênh (grayscale). Khi cần hiển thị, ảnh sẽ được chuyển sang RGB để trình bày trên UI.
+- The viewer scales images to fit the window, but processing and saving are done on the full‑resolution image.
+- Some operations convert to single‑channel grayscale; the UI adapts for display.
 
-## OCR (Tesseract)
+OCR (Tesseract)
 
-Ứng dụng dùng `pytesseract`, yêu cầu máy có cài Tesseract OCR binary.
+The app uses `pytesseract`, which requires the Tesseract OCR binary installed on your system.
 
-- Windows: tải và cài đặt Tesseract từ "UB Mannheim" build (khuyến nghị) hoặc bản chính thức.
-  - Ví dụ đường dẫn: `C:\Program Files\Tesseract-OCR\tesseract.exe`
+- Windows (recommended): UB Mannheim build – https://github.com/UB-Mannheim/tesseract/wiki
+  - Typical path: `C:\Program Files\Tesseract-OCR\tesseract.exe`
 - macOS: `brew install tesseract`
 - Linux (Debian/Ubuntu): `sudo apt-get install tesseract-ocr`
 
-Nếu ứng dụng không tìm thấy Tesseract, bạn sẽ thấy thông báo lỗi. Hãy cài đặt và (nếu cần) cấu hình biến `pytesseract.pytesseract.tesseract_cmd` trong mã hoặc thêm vào PATH của hệ thống.
+Configuring Tesseract in the app
+
+- Use `Settings → Set Tesseract Path…` to select the executable. The path is saved to `settings.json`.
+- `Settings → Check Tesseract` shows the detected version and path.
+- If OCR is triggered without a configured binary, the app prompts you to locate it.
+
+Shortcuts
+
+- Ctrl+O: Open, Ctrl+S: Save As, Ctrl+Z: Undo, Ctrl+R: Reset
+- Zoom: Ctrl +/−, Ctrl+1 (100%), Ctrl+0 (Fit)
