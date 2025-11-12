@@ -56,10 +56,12 @@ Configuring Tesseract in the app
 - `Settings → Check Tesseract` shows the detected version and path.
 - If OCR is triggered without a configured binary, the app prompts you to locate it.
 
-Object Detection model
+Object Detection models
 
-- The app uses the MobileNet‑SSD Caffe model (VOC 20 classes: person, car, dog, etc.).
-- On first use, the app can download the model files (~23 MB) automatically into `models/`.
+- MobileNet‑SSD (Caffe, VOC 20 classes): downloads ~23 MB on first use into `models/`.
+- YOLOv8n (Ultralytics): optional, requires installing `ultralytics` (which pulls PyTorch). The model file is auto‑downloaded on first run.
+  - Install: `pip install ultralytics`
+  - If PyTorch is not available for your Python version, use a Python 3.10–3.12 environment.
 - You can filter by class names in the dialog (comma‑separated) and set a confidence threshold.
 
 Shortcuts

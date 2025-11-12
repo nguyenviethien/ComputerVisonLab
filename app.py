@@ -828,7 +828,7 @@ class ImageApp:
         if not self._ensure_image():
             return
         dlg = ParamDialog(self.root, title="Object Detection", params=[
-            ChoiceParam("model", "Model", ["MobileNet-SSD"], "MobileNet-SSD"),
+            ChoiceParam("model", "Model", ["MobileNet-SSD", "YOLOv8n"], "MobileNet-SSD"),
             IntParam("conf", "Confidence %", 50, 1, 100),
             TextParam("classes", "Filter classes (comma, optional)", ""),
             BoolParam("labels", "Draw labels", True),
@@ -843,7 +843,11 @@ class ImageApp:
         include = None
         if filt:
             include = {s.strip().lower() for s in filt.split(',') if s.strip()}
-        self.detect_objects_mobilenet(confidence=conf, include_classes=include, draw_labels=draw_labels)
+        if model == "MobileNet-SSD":
+            self.detect_objects_mobilenet(confidence=conf, include_classes=include, draw_labels=draw_labels)
+        else:
+            # YOLOv8n via Ultralytics
+            self.detect_objects_yolo(model_name='yolov8n.pt', confidence=conf, include_classes=include, draw_labels=draw_labels)
 
     def _models_dir(self) -> str:
         d = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models')
@@ -965,6 +969,83 @@ class ImageApp:
         self._push_undo()
         self.current = src
         self._set_status(f"Detections: {drawn}")
+        self._refresh_display()
+
+    def _ensure_ultralytics(self):
+        try:
+            from ultralytics import YOLO  # type: ignore
+            return YOLO
+        except Exception as ex:
+            messagebox.showerror(
+                "Ultralytics not available",
+                "YOLO requires 'ultralytics' package.\nInstall: pip install ultralytics\nIf installation fails due to PyTorch/Python version, use Python 3.10–3.12 or refer to Ultralytics docs.",
+                parent=self.root,
+            )
+            return None
+
+    def detect_objects_yolo(self, model_name: str = 'yolov8n.pt', confidence: float = 0.25, include_classes: Optional[set[str]] = None, draw_labels: bool = True) -> None:
+        if not self._ensure_image():
+            return
+        YOLO = self._ensure_ultralytics()
+        if YOLO is None:
+            return
+        try:
+            model = YOLO(model_name)
+        except Exception as ex:
+            messagebox.showerror("Load YOLO", f"Failed to load {model_name}.\n{ex}", parent=self.root)
+            return
+
+        img = self.current
+        if img.ndim == 2:
+            src = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+        else:
+            src = img.copy()
+        try:
+            results = model.predict(source=src, imgsz=640, conf=confidence, verbose=False)
+        except Exception as ex:
+            messagebox.showerror("YOLO inference", f"{ex}", parent=self.root)
+            return
+        if not results:
+            messagebox.showinfo("Object Detection", "No detections.", parent=self.root)
+            return
+        r = results[0]
+        names = r.names if hasattr(r, 'names') else {}
+
+        drawn = 0
+        try:
+            boxes = r.boxes
+        except Exception:
+            boxes = None
+        if boxes is not None:
+            for b in boxes:
+                try:
+                    cls_id = int(b.cls[0].item()) if hasattr(b.cls, '__len__') else int(b.cls.item())
+                except Exception:
+                    cls_id = int(b.cls)
+                label = names.get(cls_id, str(cls_id)) if isinstance(names, dict) else str(cls_id)
+                if include_classes is not None and label.lower() not in include_classes:
+                    continue
+                try:
+                    conf_val = float(b.conf[0].item()) if hasattr(b.conf, '__len__') else float(b.conf.item())
+                except Exception:
+                    conf_val = float(confidence)
+                try:
+                    x1, y1, x2, y2 = map(int, b.xyxy[0].tolist())
+                except Exception:
+                    x1, y1, x2, y2 = [int(v) for v in b.xyxy]
+                color = self._class_color(cls_id)
+                cv2.rectangle(src, (x1, y1), (x2, y2), color, 2)
+                if draw_labels:
+                    text = f"{label}: {conf_val*100:.1f}%"
+                    y = y1 - 6 if y1 - 6 > 6 else y1 + 15
+                    cv2.putText(src, text, (x1, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2, cv2.LINE_AA)
+                drawn += 1
+
+        if drawn == 0:
+            messagebox.showinfo("Object Detection", "No objects above threshold.", parent=self.root)
+        self._push_undo()
+        self.current = src
+        self._set_status(f"YOLO detections: {drawn}")
         self._refresh_display()
 
     # ---- Zoom controls ----
