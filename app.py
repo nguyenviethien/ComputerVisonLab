@@ -9,6 +9,7 @@ from tkinter import ttk, filedialog, messagebox
 import cv2
 import numpy as np
 from PIL import Image, ImageTk
+import pytesseract
 
 
 class ImageApp:
@@ -163,6 +164,13 @@ class ImageApp:
 
         ttk.Button(self.ops_panel, text="Gaussian Blur...", command=self._dialog_blur).grid(row=row, column=0, sticky="ew", pady=2)
         row += 1
+
+        # OCR group
+        ttk.Separator(self.ops_panel, orient=tk.HORIZONTAL).grid(row=row, column=0, sticky="ew", pady=6)
+        row += 1
+        ttk.Button(self.ops_panel, text="OCR Text...", command=self._dialog_ocr).grid(row=row, column=0, sticky="ew", pady=2)
+        row += 1
+        ttk.Button(self.ops_panel, text="Detect Plate & OCR", command=self.detect_plate_and_ocr).grid(row=row, column=0, sticky="ew", pady=2)
 
         ttk.Button(self.ops_panel, text="Rotate Left 90°", command=lambda: self.apply_rotate(-90)).grid(row=row, column=0, sticky="ew", pady=2)
         row += 1
@@ -511,6 +519,151 @@ class ImageApp:
         else:
             return
         self._refresh_display()
+
+    # ---- OCR ----
+    def _dialog_ocr(self) -> None:
+        if not self._ensure_image():
+            return
+        dlg = ParamDialog(self.root, title="OCR Text", params=[
+            ChoiceParam("lang", "Language", ["eng", "vie", "eng+vie"], "eng"),
+            ChoiceParam("psm", "Page Seg Mode", ["Auto(3)", "Block(6)", "SingleLine(7)", "SingleWord(8)", "Sparse(11)", "Raw(13)"], "Auto(3)"),
+            ChoiceParam("charset", "Charset", ["General", "Digits", "Alphanumeric"], "General"),
+            BoolParam("invert", "Auto invert for dark bg", True),
+        ])
+        res = dlg.show()
+        if res is None:
+            return
+        lang = str(res["lang"]).strip()
+        psm_map = {"Auto(3)":3, "Block(6)":6, "SingleLine(7)":7, "SingleWord(8)":8, "Sparse(11)":11, "Raw(13)":13}
+        psm = psm_map.get(str(res["psm"])) or 3
+        charset = str(res["charset"]) or "General"
+        invert = bool(res["invert"]) if res.get("invert") is not None else True
+        self.ocr_current_image(lang, psm, charset, invert)
+
+    def _prepare_for_ocr(self, src: np.ndarray, invert: bool = True) -> Image.Image:
+        # Convert image to good contrast grayscale/binary for OCR
+        img = src
+        if img.ndim == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img
+        # Adaptive threshold for robustness
+        bin_img = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                        cv2.THRESH_BINARY, 31, 5)
+        if invert:
+            # If background is dark and text is bright, or vice versa, try to keep text dark on light bg.
+            # Heuristic: invert if mean < 127 (mostly dark)
+            if np.mean(bin_img) < 127:
+                bin_img = cv2.bitwise_not(bin_img)
+        return Image.fromarray(bin_img)
+
+    def _tesseract_ocr(self, pil_img: Image.Image, lang: str, psm: int, charset: str) -> str:
+        try:
+            config_parts = [f"--oem 3", f"--psm {int(psm)}"]
+            if charset == "Digits":
+                config_parts.append("-c tessedit_char_whitelist=0123456789")
+            elif charset == "Alphanumeric":
+                config_parts.append("-c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+            config = " ".join(config_parts)
+            text = pytesseract.image_to_string(pil_img, lang=lang, config=config)
+            return text.strip()
+        except pytesseract.TesseractNotFoundError:
+            messagebox.showerror(
+                "Tesseract not found",
+                "Không tìm thấy Tesseract OCR. Hãy cài đặt Tesseract (Windows: C\\Program Files\\Tesseract-OCR) hoặc thêm vào PATH."
+            )
+            return ""
+        except Exception as ex:
+            messagebox.showerror("OCR error", f"{ex}")
+            return ""
+
+    def _show_ocr_result(self, text: str, title: str = "OCR Result") -> None:
+        # Show text and copy to clipboard
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        messagebox.showinfo(title, f"Text:\n{text if text else '(empty)'}\n\n(Đã copy vào clipboard)")
+
+    def ocr_current_image(self, lang: str = "eng", psm: int = 3, charset: str = "General", invert: bool = True) -> None:
+        if not self._ensure_image():
+            return
+        pre = self._prepare_for_ocr(self.current, invert=invert)
+        text = self._tesseract_ocr(pre, lang=lang, psm=psm, charset=charset)
+        self._set_status("OCR done")
+        self._show_ocr_result(text, "OCR Text")
+
+    def detect_plate_and_ocr(self) -> None:
+        if not self._ensure_image():
+            return
+        # Try detect a plate-like rectangular region and OCR
+        src = self.current
+        if src.ndim == 3:
+            gray = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = src
+        # Preprocessing for edge detection
+        blur = cv2.bilateralFilter(gray, d=9, sigmaColor=75, sigmaSpace=75)
+        edges = cv2.Canny(blur, 100, 200)
+        edges = cv2.dilate(edges, np.ones((3, 3), np.uint8), iterations=1)
+
+        contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)[:50]
+
+        target_quad = None
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area < 1000:
+                continue
+            peri = cv2.arcLength(cnt, True)
+            approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
+            if len(approx) == 4:
+                # Check aspect ratio using bounding rect
+                x, y, w, h = cv2.boundingRect(approx)
+                if h == 0:
+                    continue
+                ar = w / float(h)
+                if 2.0 <= ar <= 6.0:
+                    target_quad = approx.reshape(4, 2)
+                    break
+
+        if target_quad is None:
+            # fallback: OCR whole image
+            pre = self._prepare_for_ocr(src, invert=True)
+            text = self._tesseract_ocr(pre, lang="eng", psm=7, charset="Alphanumeric")
+            self._show_ocr_result(text or "", "Detect Plate & OCR (fallback)")
+            self._set_status("Plate not found; OCR on full image")
+            return
+
+        # Order the points for perspective transform
+        quad = self._order_points(target_quad)
+        (tl, tr, br, bl) = quad
+        widthA = np.linalg.norm(br - bl)
+        widthB = np.linalg.norm(tr - tl)
+        maxW = int(max(widthA, widthB))
+        heightA = np.linalg.norm(tr - br)
+        heightB = np.linalg.norm(tl - bl)
+        maxH = int(max(heightA, heightB))
+        maxW = max(1, maxW)
+        maxH = max(1, maxH)
+
+        dst = np.array([[0, 0], [maxW - 1, 0], [maxW - 1, maxH - 1], [0, maxH - 1]], dtype="float32")
+        M = cv2.getPerspectiveTransform(quad.astype("float32"), dst)
+        warped = cv2.warpPerspective(src, M, (maxW, maxH))
+
+        pre = self._prepare_for_ocr(warped, invert=True)
+        text = self._tesseract_ocr(pre, lang="eng", psm=7, charset="Alphanumeric")
+        self._show_ocr_result(text or "", "Detect Plate & OCR")
+        self._set_status("Plate OCR done")
+
+    def _order_points(self, pts: np.ndarray) -> np.ndarray:
+        # Order 4 points as tl, tr, br, bl
+        rect = np.zeros((4, 2), dtype="float32")
+        s = pts.sum(axis=1)
+        rect[0] = pts[np.argmin(s)]  # tl
+        rect[2] = pts[np.argmax(s)]  # br
+        diff = np.diff(pts, axis=1)
+        rect[1] = pts[np.argmin(diff)]  # tr
+        rect[3] = pts[np.argmax(diff)]  # bl
+        return rect
 
     # ---- Zoom controls ----
     def zoom_fit(self) -> None:
