@@ -828,7 +828,7 @@ class ImageApp:
         if not self._ensure_image():
             return
         dlg = ParamDialog(self.root, title="Object Detection", params=[
-            ChoiceParam("model", "Model", ["MobileNet-SSD", "YOLOv8n"], "MobileNet-SSD"),
+            ChoiceParam("model", "Model", ["YOLOv8n", "MobileNet-SSD"], "YOLOv8n"),
             IntParam("conf", "Confidence %", 50, 1, 100),
             TextParam("classes", "Filter classes (comma, optional)", ""),
             BoolParam("labels", "Draw labels", True),
