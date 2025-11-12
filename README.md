@@ -32,8 +32,9 @@ Features
   - Gaussian blur (kernel size)
   - Rotate 90° (left/right), Flip (H/V)
   - Zoom in/out, Fit/100%, mouse pan
-  - OCR current image
-  - Detect Plate & OCR (heuristic plate finder + perspective warp, then OCR)
+- OCR current image
+- Detect Plate & OCR (heuristic plate finder + perspective warp, then OCR)
+- Object Detection (MobileNet‑SSD via OpenCV DNN). Downloads model on first use.
 
 Notes
 
@@ -54,6 +55,12 @@ Configuring Tesseract in the app
 - Use `Settings → Set Tesseract Path…` to select the executable. The path is saved to `settings.json`.
 - `Settings → Check Tesseract` shows the detected version and path.
 - If OCR is triggered without a configured binary, the app prompts you to locate it.
+
+Object Detection model
+
+- The app uses the MobileNet‑SSD Caffe model (VOC 20 classes: person, car, dog, etc.).
+- On first use, the app can download the model files (~23 MB) automatically into `models/`.
+- You can filter by class names in the dialog (comma‑separated) and set a confidence threshold.
 
 Shortcuts
 

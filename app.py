@@ -4,6 +4,8 @@ import math
 import json
 import platform
 import shutil
+import urllib.request
+import urllib.error
 from typing import Optional, Tuple
 
 import tkinter as tk
@@ -184,7 +186,7 @@ class ImageApp:
         ttk.Button(self.ops_panel, text="OCR Text...", command=self._dialog_ocr).grid(row=row, column=0, sticky="ew", pady=2)
         row += 1
         ttk.Button(self.ops_panel, text="Detect Plate & OCR", command=self.detect_plate_and_ocr).grid(row=row, column=0, sticky="ew", pady=2)
-
+        
         ttk.Button(self.ops_panel, text="Rotate Left 90°", command=lambda: self.apply_rotate(-90)).grid(row=row, column=0, sticky="ew", pady=2)
         row += 1
 
@@ -195,6 +197,11 @@ class ImageApp:
         row += 1
 
         ttk.Button(self.ops_panel, text="Flip Vertical", command=lambda: self.apply_flip('v')).grid(row=row, column=0, sticky="ew", pady=2)
+
+        row += 1
+        ttk.Separator(self.ops_panel, orient=tk.HORIZONTAL).grid(row=row, column=0, sticky="ew", pady=6)
+        row += 1
+        ttk.Button(self.ops_panel, text="Object Detection...", command=self._dialog_object_detection).grid(row=row, column=0, sticky="ew", pady=2)
 
         for c in range(1):
             self.ops_panel.grid_columnconfigure(c, weight=1)
@@ -816,6 +823,150 @@ class ImageApp:
         rect[3] = pts[np.argmax(diff)]  # bl
         return rect
 
+    # ---- Object Detection (MobileNet-SSD) ----
+    def _dialog_object_detection(self) -> None:
+        if not self._ensure_image():
+            return
+        dlg = ParamDialog(self.root, title="Object Detection", params=[
+            ChoiceParam("model", "Model", ["MobileNet-SSD"], "MobileNet-SSD"),
+            IntParam("conf", "Confidence %", 50, 1, 100),
+            TextParam("classes", "Filter classes (comma, optional)", ""),
+            BoolParam("labels", "Draw labels", True),
+        ])
+        res = dlg.show()
+        if res is None:
+            return
+        model = str(res.get("model", "MobileNet-SSD"))
+        conf = int(res.get("conf", 50)) / 100.0
+        filt = str(res.get("classes", "")).strip()
+        draw_labels = bool(res.get("labels", True))
+        include = None
+        if filt:
+            include = {s.strip().lower() for s in filt.split(',') if s.strip()}
+        self.detect_objects_mobilenet(confidence=conf, include_classes=include, draw_labels=draw_labels)
+
+    def _models_dir(self) -> str:
+        d = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models')
+        os.makedirs(d, exist_ok=True)
+        return d
+
+    def _download(self, url: str, dest: str) -> bool:
+        try:
+            self._set_status(f"Downloading model: {os.path.basename(dest)}")
+            urllib.request.urlretrieve(url, dest)
+            return True
+        except Exception as ex:
+            messagebox.showerror("Download failed", f"{ex}", parent=self.root)
+            return False
+
+    def _ensure_mobilenet_ssd(self) -> Optional[tuple[str, str]]:
+        models_dir = self._models_dir()
+        proto = os.path.join(models_dir, 'MobileNetSSD_deploy.prototxt')
+        weights = os.path.join(models_dir, 'MobileNetSSD_deploy.caffemodel')
+        have_proto = os.path.exists(proto)
+        have_weights = os.path.exists(weights)
+        if have_proto and have_weights:
+            return proto, weights
+        # Ask to download
+        if not messagebox.askyesno("Model missing", "MobileNet-SSD model not found. Download now (~23MB)?", parent=self.root):
+            return None
+        # Sources (primary and fallback)
+        proto_urls = [
+            'https://raw.githubusercontent.com/chuanqi305/MobileNet-SSD/master/MobileNetSSD_deploy.prototxt',
+            'https://raw.githubusercontent.com/opencv/opencv_extra/master/testdata/dnn/MobileNetSSD_deploy.prototxt',
+        ]
+        weight_urls = [
+            'https://github.com/chuanqi305/MobileNet-SSD/raw/master/MobileNetSSD_deploy.caffemodel',
+        ]
+        ok = have_proto
+        if not have_proto:
+            for u in proto_urls:
+                if self._download(u, proto):
+                    ok = True
+                    break
+        if not ok:
+            return None
+        ok2 = have_weights
+        if not have_weights:
+            for u in weight_urls:
+                if self._download(u, weights):
+                    ok2 = True
+                    break
+        if not ok2:
+            return None
+        return proto, weights
+
+    def _mobilenet_classes(self) -> list[str]:
+        return [
+            "background", "aeroplane", "bicycle", "bird", "boat",
+            "bottle", "bus", "car", "cat", "chair", "cow", "diningtable",
+            "dog", "horse", "motorbike", "person", "pottedplant",
+            "sheep", "sofa", "train", "tvmonitor"
+        ]
+
+    def _class_color(self, idx: int) -> tuple[int, int, int]:
+        # Deterministic pseudo-color by class index
+        np.random.seed(idx + 123)
+        c = np.random.randint(0, 255, size=3).tolist()
+        return (int(c[0]), int(c[1]), int(c[2]))
+
+    def detect_objects_mobilenet(self, confidence: float = 0.5, include_classes: Optional[set[str]] = None, draw_labels: bool = True) -> None:
+        if not self._ensure_image():
+            return
+        ensured = self._ensure_mobilenet_ssd()
+        if not ensured:
+            return
+        proto, weights = ensured
+        try:
+            net = cv2.dnn.readNetFromCaffe(proto, weights)
+        except Exception as ex:
+            messagebox.showerror("Load model", f"Failed to load model.\n{ex}", parent=self.root)
+            return
+
+        img = self.current
+        # Work on color image for drawing
+        if img.ndim == 2:
+            src = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+        else:
+            src = img.copy()
+        (h, w) = src.shape[:2]
+        blob = cv2.dnn.blobFromImage(cv2.resize(src, (300, 300)), 0.007843, (300, 300), 127.5)
+        net.setInput(blob)
+        detections = net.forward()
+
+        classes = self._mobilenet_classes()
+        drawn = 0
+        for i in range(detections.shape[2]):
+            conf = float(detections[0, 0, i, 2])
+            if conf < confidence:
+                continue
+            class_id = int(detections[0, 0, i, 1])
+            if class_id < 0 or class_id >= len(classes):
+                continue
+            label = classes[class_id]
+            if include_classes is not None and label.lower() not in include_classes:
+                continue
+            box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
+            (startX, startY, endX, endY) = box.astype("int")
+            startX = max(0, min(w - 1, startX))
+            startY = max(0, min(h - 1, startY))
+            endX = max(0, min(w - 1, endX))
+            endY = max(0, min(h - 1, endY))
+            color = self._class_color(class_id)
+            cv2.rectangle(src, (startX, startY), (endX, endY), color, 2)
+            if draw_labels:
+                text = f"{label}: {conf*100:.1f}%"
+                y = startY - 6 if startY - 6 > 6 else startY + 15
+                cv2.putText(src, text, (startX, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2, cv2.LINE_AA)
+            drawn += 1
+
+        if drawn == 0:
+            messagebox.showinfo("Object Detection", "No objects above threshold.", parent=self.root)
+        self._push_undo()
+        self.current = src
+        self._set_status(f"Detections: {drawn}")
+        self._refresh_display()
+
     # ---- Zoom controls ----
     def zoom_fit(self) -> None:
         self.zoom_mode = 'fit'
@@ -910,6 +1061,12 @@ class ChoiceParam(ParamBase):
         self.default = default or (choices[0] if choices else "")
 
 
+class TextParam(ParamBase):
+    def __init__(self, key: str, label: str, default: Optional[str] = None):
+        super().__init__(key, label)
+        self.default = default or ""
+
+
 class ParamDialog:
     def __init__(self, parent: tk.Tk, title: str, params: list[ParamBase]):
         self.parent = parent
@@ -963,6 +1120,13 @@ class ParamDialog:
                 cb.grid(row=row, column=1, columnspan=2, sticky="ew")
                 widgets.append((p, var))
                 row += 1
+            elif isinstance(p, TextParam):
+                ttk.Label(frm, text=p.label).grid(row=row, column=0, sticky="w", pady=4)
+                var = tk.StringVar(value=p.default or "")
+                ent = ttk.Entry(frm, textvariable=var)
+                ent.grid(row=row, column=1, columnspan=2, sticky="ew")
+                widgets.append((p, var))
+                row += 1
 
         frm.grid_columnconfigure(1, weight=1)
 
@@ -1004,6 +1168,8 @@ class ParamDialog:
                 elif isinstance(p, BoolParam):
                     out[p.key] = bool(var.get())
                 elif isinstance(p, ChoiceParam):
+                    out[p.key] = str(var.get())
+                elif isinstance(p, TextParam):
                     out[p.key] = str(var.get())
             self.result = out
         else:
