@@ -1,0 +1,38 @@
+ImageUtility
+
+Ứng dụng Python đơn giản với giao diện Tkinter để xử lý ảnh cơ bản sử dụng OpenCV: chuyển xám, nhị phân (binary), edge (Canny), contour, làm mờ, xoay, lật, hoàn tác.
+
+Yêu cầu
+
+- Python 3.8+
+- Thư viện: `opencv-python`, `Pillow`, `numpy`
+
+Cài đặt nhanh:
+
+```
+pip install -r requirements.txt
+```
+
+Chạy ứng dụng
+
+```
+python app.py
+```
+
+Tính năng chính
+
+- Mở/lưu ảnh (File -> Open/Save As)
+- Hoàn tác và đặt lại về ảnh gốc (Edit -> Undo/Reset)
+- Các xử lý ảnh:
+  - Grayscale (chuyển xám)
+  - Binary threshold (ngưỡng nhị phân) với thanh trượt
+  - Adaptive threshold (ngưỡng thích nghi)
+  - Canny edge detection (phát hiện biên) với 2 ngưỡng
+  - Contours (tìm và vẽ đường viền) với lọc theo diện tích tối thiểu
+  - Gaussian blur (làm mờ) với kích thước kernel
+  - Xoay trái/phải 90°, lật ngang/dọc
+
+Ghi chú
+
+- Ảnh hiển thị được scale vừa cửa sổ, nhưng thao tác xử lý và lưu luôn làm trên ảnh gốc (kích thước ban đầu).
+- Một số thao tác chuyển ảnh thành 1 kênh (grayscale). Khi cần hiển thị, ảnh sẽ được chuyển sang RGB để trình bày trên UI.
