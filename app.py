@@ -1,6 +1,9 @@
 import os
 import sys
 import math
+import json
+import platform
+import shutil
 from typing import Optional, Tuple
 
 import tkinter as tk
@@ -30,6 +33,11 @@ class ImageApp:
         self._create_main_panes()
         self._create_operations_panel()
 
+        # Config and integrations
+        self.config: dict = {}
+        self._load_config()
+        self._init_tesseract()
+
         # Bindings
         self.root.bind("<Configure>", self._on_resize)
 
@@ -54,11 +62,16 @@ class ImageApp:
         edit_menu.add_command(label="Undo", accelerator="Ctrl+Z", command=self.undo)
         edit_menu.add_command(label="Reset", accelerator="Ctrl+R", command=self.reset_image)
 
+        settings_menu = tk.Menu(menubar, tearoff=0)
+        settings_menu.add_command(label="Set Tesseract Path...", command=self.set_tesseract_path)
+        settings_menu.add_command(label="Check Tesseract", command=self.check_tesseract)
+
         help_menu = tk.Menu(menubar, tearoff=0)
         help_menu.add_command(label="About", command=self._show_about)
 
         menubar.add_cascade(label="File", menu=file_menu)
         menubar.add_cascade(label="Edit", menu=edit_menu)
+        menubar.add_cascade(label="Settings", menu=settings_menu)
         menubar.add_cascade(label="Help", menu=help_menu)
         self.root.config(menu=menubar)
 
@@ -191,7 +204,140 @@ class ImageApp:
         self.status_var.set(text)
 
     def _show_about(self) -> None:
-        messagebox.showinfo("About", "ImageUtility\nTkinter + OpenCV tools for basic image operations.")
+        # Show brief about with Tesseract status
+        tver = self._get_tesseract_version_str()
+        messagebox.showinfo(
+            "About",
+            f"ImageUtility\nTkinter + OpenCV tools for basic image operations.\n\nTesseract: {tver}",
+            parent=self.root,
+        )
+
+    # ---- Config & Tesseract integration ----
+    def _config_file(self) -> str:
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), 'settings.json')
+
+    def _load_config(self) -> None:
+        try:
+            path = self._config_file()
+            if os.path.exists(path):
+                with open(path, 'r', encoding='utf-8') as f:
+                    self.config = json.load(f)
+            else:
+                self.config = {}
+        except Exception:
+            self.config = {}
+
+    def _save_config(self) -> None:
+        try:
+            with open(self._config_file(), 'w', encoding='utf-8') as f:
+                json.dump(self.config, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _init_tesseract(self) -> None:
+        # Use configured path if present
+        cmd = self.config.get('tesseract_cmd')
+        if cmd and os.path.exists(cmd):
+            pytesseract.pytesseract.tesseract_cmd = cmd
+            return
+
+        # Try environment variables
+        for env in ('TESSERACT_CMD', 'TESSERACT_PATH'):
+            val = os.environ.get(env)
+            if val and os.path.exists(val):
+                pytesseract.pytesseract.tesseract_cmd = val
+                self.config['tesseract_cmd'] = val
+                self._save_config()
+                return
+
+        # On Windows, probe common locations
+        if platform.system().lower().startswith('win'):
+            candidates = [
+                r"C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
+                r"C:\\Program Files (x86)\\Tesseract-OCR\\tesseract.exe",
+            ]
+            for c in candidates:
+                if os.path.exists(c):
+                    pytesseract.pytesseract.tesseract_cmd = c
+                    self.config['tesseract_cmd'] = c
+                    self._save_config()
+                    return
+        else:
+            # Non-Windows: rely on PATH if available
+            which = shutil.which('tesseract')
+            if which:
+                pytesseract.pytesseract.tesseract_cmd = which
+                self.config['tesseract_cmd'] = which
+                self._save_config()
+                return
+
+    def _get_tesseract_version_str(self) -> str:
+        try:
+            v = pytesseract.get_tesseract_version()
+            return f"{v}"
+        except Exception:
+            # Not found or not working
+            return "not found"
+
+    def _ensure_tesseract(self) -> bool:
+        try:
+            pytesseract.get_tesseract_version()
+            return True
+        except pytesseract.TesseractNotFoundError:
+            if messagebox.askyesno(
+                "Tesseract not found",
+                "Không tìm thấy Tesseract OCR. Bạn có muốn chọn file tesseract.exe bây giờ không?",
+                parent=self.root,
+            ):
+                self.set_tesseract_path()
+                try:
+                    pytesseract.get_tesseract_version()
+                    return True
+                except Exception:
+                    return False
+            return False
+        except Exception:
+            return False
+
+    def set_tesseract_path(self) -> None:
+        initial = None
+        if platform.system().lower().startswith('win'):
+            if os.path.exists(r"C:\\Program Files\\Tesseract-OCR"):
+                initial = r"C:\\Program Files\\Tesseract-OCR"
+            elif os.path.exists(r"C:\\Program Files (x86)\\Tesseract-OCR"):
+                initial = r"C:\\Program Files (x86)\\Tesseract-OCR"
+        path = filedialog.askopenfilename(
+            parent=self.root,
+            title="Select Tesseract executable",
+            initialdir=initial,
+            filetypes=[("Executable", "*.exe"), ("All files", "*.*")] if platform.system().lower().startswith('win') else [("All files", "*.*")],
+        )
+        if not path:
+            return
+        if not os.path.exists(path):
+            messagebox.showerror("Invalid path", "Đường dẫn không tồn tại.", parent=self.root)
+            return
+        # Test the executable
+        try:
+            old = pytesseract.pytesseract.tesseract_cmd
+        except Exception:
+            old = None
+        pytesseract.pytesseract.tesseract_cmd = path
+        try:
+            v = pytesseract.get_tesseract_version()
+            self.config['tesseract_cmd'] = path
+            self._save_config()
+            messagebox.showinfo("Tesseract", f"Đã cấu hình: {path}\nVersion: {v}", parent=self.root)
+            self._set_status(f"Tesseract OK: {v}")
+        except Exception as ex:
+            # revert
+            if old is not None:
+                pytesseract.pytesseract.tesseract_cmd = old
+            messagebox.showerror("Tesseract", f"Không thể chạy Tesseract tại đường dẫn này.\n{ex}", parent=self.root)
+
+    def check_tesseract(self) -> None:
+        v = self._get_tesseract_version_str()
+        messagebox.showinfo("Tesseract", f"Tesseract: {v}\nPath: {getattr(pytesseract.pytesseract, 'tesseract_cmd', '(PATH)')}", parent=self.root)
 
     def _on_resize(self, event: tk.Event) -> None:
         if event.widget == self.root:
@@ -251,7 +397,7 @@ class ImageApp:
 
     def _ensure_image(self) -> bool:
         if self.current is None:
-            messagebox.showwarning("No Image", "Vui lòng mở ảnh trước.")
+            messagebox.showwarning("No Image", "Vui lòng mở ảnh trước.", parent=self.root)
             return False
         return True
 
@@ -264,7 +410,7 @@ class ImageApp:
 
     # ---- File ops ----
     def open_image(self) -> None:
-        path = filedialog.askopenfilename(title="Open image",
+        path = filedialog.askopenfilename(title="Open image", parent=self.root,
                                           filetypes=[
                                               ("Images", "*.png;*.jpg;*.jpeg;*.bmp;*.tiff;*.tif"),
                                               ("All files", "*.*"),
@@ -273,7 +419,7 @@ class ImageApp:
             return
         img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
         if img is None:
-            messagebox.showerror("Open image", "Không thể mở ảnh: " + os.path.basename(path))
+            messagebox.showerror("Open image", "Không thể mở ảnh: " + os.path.basename(path), parent=self.root)
             return
         # If image has alpha, drop alpha for simplicity
         if img.ndim == 3 and img.shape[2] == 4:
@@ -289,7 +435,7 @@ class ImageApp:
     def save_image(self) -> None:
         if not self._ensure_image():
             return
-        path = filedialog.asksaveasfilename(title="Save image",
+        path = filedialog.asksaveasfilename(title="Save image", parent=self.root,
                                             defaultextension=".png",
                                             filetypes=[
                                                 ("PNG", "*.png"),
@@ -301,7 +447,7 @@ class ImageApp:
             return
         ok = cv2.imwrite(path, self.current)
         if not ok:
-            messagebox.showerror("Save image", "Lưu ảnh thất bại.")
+            messagebox.showerror("Save image", "Lưu ảnh thất bại.", parent=self.root)
         else:
             self._set_status(f"Saved {os.path.basename(path)}")
 
@@ -570,21 +716,24 @@ class ImageApp:
         except pytesseract.TesseractNotFoundError:
             messagebox.showerror(
                 "Tesseract not found",
-                "Không tìm thấy Tesseract OCR. Hãy cài đặt Tesseract (Windows: C\\Program Files\\Tesseract-OCR) hoặc thêm vào PATH."
+                "Không tìm thấy Tesseract OCR. Hãy cài đặt Tesseract (Windows: C\\Program Files\\Tesseract-OCR) hoặc thêm vào PATH.",
+                parent=self.root
             )
             return ""
         except Exception as ex:
-            messagebox.showerror("OCR error", f"{ex}")
+            messagebox.showerror("OCR error", f"{ex}", parent=self.root)
             return ""
 
     def _show_ocr_result(self, text: str, title: str = "OCR Result") -> None:
         # Show text and copy to clipboard
         self.root.clipboard_clear()
         self.root.clipboard_append(text)
-        messagebox.showinfo(title, f"Text:\n{text if text else '(empty)'}\n\n(Đã copy vào clipboard)")
+        messagebox.showinfo(title, f"Text:\n{text if text else '(empty)'}\n\n(Đã copy vào clipboard)", parent=self.root)
 
     def ocr_current_image(self, lang: str = "eng", psm: int = 3, charset: str = "General", invert: bool = True) -> None:
         if not self._ensure_image():
+            return
+        if not self._ensure_tesseract():
             return
         pre = self._prepare_for_ocr(self.current, invert=invert)
         text = self._tesseract_ocr(pre, lang=lang, psm=psm, charset=charset)
@@ -593,6 +742,8 @@ class ImageApp:
 
     def detect_plate_and_ocr(self) -> None:
         if not self._ensure_image():
+            return
+        if not self._ensure_tesseract():
             return
         # Try detect a plate-like rectangular region and OCR
         src = self.current
@@ -821,6 +972,22 @@ class ParamDialog:
         cancel_btn = ttk.Button(btns, text="Cancel", command=lambda: self._close(win, widgets, ok=False))
         ok_btn.grid(row=0, column=0, padx=4)
         cancel_btn.grid(row=0, column=1)
+
+        # Center dialog over parent
+        try:
+            win.update_idletasks()
+            self.parent.update_idletasks()
+            w = win.winfo_width(); h = win.winfo_height()
+            pw = self.parent.winfo_width(); ph = self.parent.winfo_height()
+            if pw <= 1 or ph <= 1:
+                sx = win.winfo_screenwidth(); sy = win.winfo_screenheight()
+                x = max(0, (sx - w) // 2); y = max(0, (sy - h) // 2)
+            else:
+                px = self.parent.winfo_rootx(); py = self.parent.winfo_rooty()
+                x = max(0, int(px + (pw - w) / 2)); y = max(0, int(py + (ph - h) / 2))
+            win.geometry(f"+{x}+{y}")
+        except Exception:
+            pass
 
         win.bind("<Return>", lambda e: self._close(win, widgets, ok=True))
         win.bind("<Escape>", lambda e: self._close(win, widgets, ok=False))
