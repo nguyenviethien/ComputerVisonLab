@@ -20,7 +20,7 @@ import pytesseract
 class ImageApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("ImageUtility - OpenCV Tools")
+        self.root.title("ComputerVisionLab - OpenCV Tools")
         self.root.geometry("1100x700")
 
         # State
@@ -180,13 +180,18 @@ class ImageApp:
         ttk.Button(self.ops_panel, text="Gaussian Blur...", command=self._dialog_blur).grid(row=row, column=0, sticky="ew", pady=2)
         row += 1
 
-        # OCR group
+        # AI group: OCR + Object Detection
         ttk.Separator(self.ops_panel, orient=tk.HORIZONTAL).grid(row=row, column=0, sticky="ew", pady=6)
+        row += 1
+        ttk.Label(self.ops_panel, text="AI: OCR & Detection", font=("Segoe UI", 10, "bold")).grid(row=row, column=0, sticky="w", pady=(0, 4))
         row += 1
         ttk.Button(self.ops_panel, text="OCR Text...", command=self._dialog_ocr).grid(row=row, column=0, sticky="ew", pady=2)
         row += 1
         ttk.Button(self.ops_panel, text="Detect Plate & OCR", command=self.detect_plate_and_ocr).grid(row=row, column=0, sticky="ew", pady=2)
-        
+        row += 1
+        ttk.Button(self.ops_panel, text="Object Detection...", command=self._dialog_object_detection).grid(row=row, column=0, sticky="ew", pady=2)
+        row += 1
+
         ttk.Button(self.ops_panel, text="Rotate Left 90°", command=lambda: self.apply_rotate(-90)).grid(row=row, column=0, sticky="ew", pady=2)
         row += 1
 
@@ -197,11 +202,6 @@ class ImageApp:
         row += 1
 
         ttk.Button(self.ops_panel, text="Flip Vertical", command=lambda: self.apply_flip('v')).grid(row=row, column=0, sticky="ew", pady=2)
-
-        row += 1
-        ttk.Separator(self.ops_panel, orient=tk.HORIZONTAL).grid(row=row, column=0, sticky="ew", pady=6)
-        row += 1
-        ttk.Button(self.ops_panel, text="Object Detection...", command=self._dialog_object_detection).grid(row=row, column=0, sticky="ew", pady=2)
 
         for c in range(1):
             self.ops_panel.grid_columnconfigure(c, weight=1)
@@ -215,7 +215,7 @@ class ImageApp:
         tver = self._get_tesseract_version_str()
         messagebox.showinfo(
             "About",
-            f"ImageUtility\nTkinter + OpenCV tools for basic image operations.\n\nTesseract: {tver}",
+            f"ComputerVisionLab\nTkinter + OpenCV tools for basic image operations.\n\nTesseract: {tver}",
             parent=self.root,
         )
 

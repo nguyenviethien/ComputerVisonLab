@@ -1,6 +1,6 @@
-ImageUtility
+ComputerVisionLab
 
-A small Python desktop app with a Tkinter UI for basic image processing using OpenCV. Includes grayscale, binary/adaptive threshold, Canny edges, contours, blur, rotate/flip, zoom/pan, and OCR (Tesseract). 
+A small Python desktop app with a Tkinter UI for basic image processing using OpenCV. Includes grayscale, binary/adaptive threshold, Canny edges, contours, blur, rotate/flip, zoom/pan, and AI tools (OCR + Object Detection). 
 
 Requirements
 
@@ -32,9 +32,10 @@ Features
   - Gaussian blur (kernel size)
   - Rotate 90° (left/right), Flip (H/V)
   - Zoom in/out, Fit/100%, mouse pan
-- OCR current image
-- Detect Plate & OCR (heuristic plate finder + perspective warp, then OCR)
-- Object Detection (MobileNet‑SSD via OpenCV DNN). Downloads model on first use.
+  - AI: OCR & Detection
+    - OCR current image (Tesseract)
+    - Detect Plate & OCR (heuristic plate finder + perspective warp, then OCR)
+    - Object Detection (YOLOv8n by default; MobileNet‑SSD as alternative)
 
 Notes
 
